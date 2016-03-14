@@ -1,0 +1,34 @@
+
+public class Command {
+	public int OPcode;
+	public String data;
+	
+	public Command (int OPcode, String data){
+		this.OPcode = OPcode;
+		this.data = data;
+	}
+	
+	
+	
+}
+
+
+/*
+CLIENT - SERVER
+1: player name change
+
+
+
+
+
+*/
+
+/*
+SERVER - CLIENT
+1: player name change request
+
+
+
+
+
+*/
