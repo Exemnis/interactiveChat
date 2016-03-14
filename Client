@@ -1,0 +1,350 @@
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.awt.*;
+import java.io.*;
+import java.net.Socket;
+
+import javax.swing.*;
+import javax.swing.plaf.synth.SynthSeparatorUI;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyleContext;
+
+/**
+ * A simple Swing-based client for the chat server.  Graphically
+ * it is a frame with a text field for entering messages and a
+ * textarea to see the whole dialog.
+ *
+ * The client follows the Chat Protocol which is as follows.
+ * When the server sends "SUBMITNAME" the client replies with the
+ * desired screen name.  The server will keep sending "SUBMITNAME"
+ * requests as long as the client submits screen names that are
+ * already in use.  When the server sends a line beginning
+ * with "NAMEACCEPTED" the client is now allowed to start
+ * sending the server arbitrary strings to be broadcast to all
+ * chatters connected to the server.  When the server sends a
+ * line beginning with "MESSAGE " then all characters following
+ * this string should be displayed in its message area.
+ */
+public class Client {
+
+	private ObjectInputStream in;
+	private ObjectOutputStream out;
+
+	private JFrame frame;
+	private JPanel panel;
+	private JTextField textField;
+	private JTextPane textPane;
+	private Color chatColor;
+	private Color bgColor;
+	private Color systemColor;
+	private Interface game;
+	private Player me;
+
+
+	/**
+	 * Constructs the client by laying out the GUI and registering a
+	 * listener with the textfield so that pressing Return in the
+	 * listener sends the textfield contents to the server.  Note
+	 * however that the textfield is initially NOT editable, and
+	 * only becomes editable AFTER the client receives the NAMEACCEPTED
+	 * message from the server.
+	 */
+	public Client() {
+		frame = new JFrame("Interactive Chat");
+		chatColor = Color.BLACK;
+		systemColor = Color.RED;
+		panel = new JPanel(new GridBagLayout());
+		GridBagConstraints c = new GridBagConstraints();
+		textPane = new JTextPane();
+		textField = new JTextField();
+
+		//Construct game interface
+		game = new Interface();
+		game.setBounds(0, 0, 800, 800);
+		c.fill = GridBagConstraints.BOTH;
+		c.weightx = 0.7;
+		c.weighty = 1.0;
+		c.gridheight = 2;
+		c.gridx = 0;
+		c.gridy = 0;
+		game.setVisible(true);
+		panel.add(game,c);
+
+
+
+
+
+		//Construct text interface
+		textField.setEditable(false);
+		textPane.setEditable(false);
+		JScrollPane scrollPane = new JScrollPane(textPane);
+
+		//Construct text pane
+		c.weightx = 0.3;
+		c.weighty = 1.0;
+		c.gridheight = 1;
+		c.gridx = 1;
+		c.gridy = 0;
+		panel.add(scrollPane,c);
+
+		//Construct text entry box
+		c.fill = GridBagConstraints.HORIZONTAL;
+		c.anchor = GridBagConstraints.PAGE_END;
+		c.weightx = 0.0;
+		c.weighty = 0.0;
+		c.gridx = 1;
+		c.gridy = 1;
+		panel.add(textField,c);
+
+		
+		//Create player
+		this.me = new Player(100, 100, "", Color.BLACK);
+		
+		
+		
+		KeyListener listener = new MyKeyListener();
+		textField.addKeyListener(listener);
+		
+		// Add Listeners
+		ActionListener userAction = new ActionListener() {
+			/**
+			 * Responds to pressing the enter key in the textfield by sending
+			 * the contents of the text field to the server.    Then clear
+			 * the text area in preparation for the next message.
+			 */
+			public void actionPerformed(ActionEvent e) {
+				try {
+					if (textField.getText(0, 1).equals("/")){
+						userCommands(textField.getText());
+						textField.setForeground(chatColor);
+						textField.setBackground(bgColor);
+						textPane.setBackground(bgColor);
+					} else {
+						sendChatMessage(textField.getText());
+					}
+				} catch (BadLocationException e1) {
+					e1.printStackTrace();
+				}
+				textField.setText("");
+			}
+		};
+		textField.addActionListener(userAction);
+
+
+
+		//Add panels to larger
+		frame.add(panel);
+		frame.setMinimumSize(new Dimension(800,800));
+		frame.pack();		
+
+		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		frame.setVisible(true);
+	}
+
+	public class MyKeyListener implements KeyListener {
+		@Override
+		public void keyTyped(KeyEvent e) {
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e) {
+			int keyCode = e.getKeyCode();
+			game.repaint();
+			switch( keyCode ) { 
+			case KeyEvent.VK_UP:
+				game.moveUp();
+				break;
+			case KeyEvent.VK_DOWN:
+				game.moveDown(); 
+				break;
+			case KeyEvent.VK_LEFT:
+				game.moveLeft();
+				break;
+			case KeyEvent.VK_RIGHT :
+				game.moveRight();
+				break;
+			}
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e) {
+		}
+	}
+	
+	/**
+	 * Prompt for and return the address of the server.
+	 */
+	private String getServerAddress() {
+		return JOptionPane.showInputDialog(
+				frame,
+				"Enter IP Address of the Server:",
+				"Welcome to the Chatter",
+				JOptionPane.QUESTION_MESSAGE);
+	}
+
+	/**
+	 * Prompt for and return the desired screen name.
+	 */
+	private String setName() {
+		String name = JOptionPane.showInputDialog(
+				frame,
+				"Choose a screen name:",
+				"Screen name selection",
+				JOptionPane.PLAIN_MESSAGE);
+		me.setName(name);
+		return name;
+		
+	}
+
+	/**
+	 * Connects to the server then enters the processing loop.
+	 */
+	private void run() throws IOException {
+
+		// Make connection and initialize streams
+		String serverAddress = getServerAddress();
+		Socket socket = new Socket(serverAddress, 7070);
+		in = new ObjectInputStream(socket.getInputStream());
+		out = new ObjectOutputStream(socket.getOutputStream());
+		
+		// Process all messages from server, according to the protocol.
+		while (true) {
+			this.game.repaint();
+			textField.requestFocus();
+			
+			Object input = null;
+			try {
+				input = in.readObject();
+			} catch (ClassNotFoundException e) {
+				System.out.println("ERROR INVALID SERVER MESSAGE DONT HACK KIDS\n");//TODO MAKE POPUP
+				e.printStackTrace();
+			}
+			
+			if (input instanceof String) {
+				String line = (String)input;
+				if (line.startsWith("SUBMITNAME")) {
+					out.writeObject(new Command(1, setName()));
+				} else if (line.startsWith("NAMEACCEPTED")) {
+					textField.setEditable(true);
+				} else if (line.startsWith("MESSAGE")) {
+					appendToPane(textPane, line.substring(8), chatColor);
+				} else if (line.startsWith("CONNECT")) {
+					appendToPane(textPane, line.substring(7), systemColor);
+				}
+			}
+			
+			
+		}
+	}
+
+	/**
+	 * Method to add text to the JText pane in the desired format.
+	 */
+	private void appendToPane(JTextPane textPane, String msg, Color c)
+	{
+		textPane.setEditable(true);
+		StyleContext sc = StyleContext.getDefaultStyleContext();
+		AttributeSet aset = sc.addAttribute(SimpleAttributeSet.EMPTY, StyleConstants.Foreground, c);
+
+		aset = sc.addAttribute(aset, StyleConstants.FontFamily, "Lucida Console");
+		aset = sc.addAttribute(aset, StyleConstants.Alignment, StyleConstants.ALIGN_JUSTIFIED);
+
+		int len = textPane.getDocument().getLength();
+		textPane.setCaretPosition(len);
+		textPane.setCharacterAttributes(aset, false);
+		textPane.replaceSelection(msg + "\n");
+		textPane.setEditable(false);
+	}
+
+	private void systemMessage(String msg) {
+		appendToPane(textPane, msg, systemColor);
+	}
+
+
+	private void userCommands(String s){
+		s = s.substring(1);
+		String[] command = s.split("\\u0020");
+		switch (command[0]) {
+		case "chatcolor":
+			switch (command[1]) {
+			case "black": chatColor = Color.BLACK;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "orange": chatColor = Color.ORANGE;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "green": chatColor = Color.GREEN;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "blue": chatColor = Color.BLUE;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "yellow": chatColor = Color.YELLOW;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "chartreuse": chatColor = Color.WHITE;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			default: systemMessage("Invalid chatcolor");
+			}
+			break;
+		case "bgcolor":
+			switch (command[1]) {
+			case "black": bgColor = Color.BLACK;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "orange": bgColor = Color.ORANGE;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "green": bgColor = Color.GREEN;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "blue": bgColor = Color.BLUE;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "yellow": bgColor = Color.YELLOW;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			case "chartreuse": bgColor = Color.WHITE;
+			systemMessage("Your Chat Color changed to " + command[1]);
+			break;
+			default: systemMessage("Invalid chatcolor");
+			}
+			break;
+
+		default: systemMessage("Invalid Command");
+		}
+
+	}
+	
+	private void sendChatMessage (String chatMessage) throws IOException {
+		out.writeObject(chatMessage);
+	}
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+	/**
+	 * Runs the client as an application with a closeable frame.
+	 */
+	public static void main(String[] args) throws Exception {
+		Client client = new Client();
+		client.run();
+
+
+
+	}
+}
