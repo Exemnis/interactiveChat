@@ -1,0 +1,54 @@
+import java.awt.Color;
+
+public class Player {
+	private double x;
+	private double y;
+	private Color color;
+	private String name;
+	private int direction;
+	
+	public Player (double x, double y, String name, Color color) {
+		this.x = x;
+		this.y = y;
+		this.name = name;
+		this.color = color;
+	}
+	
+	
+	protected Color getColor () {
+		return this.color;
+	}
+	
+	protected String getName() {
+		return this.name;
+	}
+	
+	protected void setName (String name) {
+		this.name = name;
+	}
+	
+	protected void setDirection (String direction) {
+		this.name = name;
+	}
+	
+	
+	protected void setLocation(double x, double y) {
+		this.x = x;
+		this.y = y;
+	}
+	
+	//No collisions
+	protected void move(double speed) {
+		
+		switch (this.direction) {
+		case 0: return;
+		case 1: this.y += speed;return;
+		case 2: this.x += speed;return;
+		case 3: this.y -= speed;return;
+		case 4: this.x -= speed;return;
+		default: return;
+		}
+	}
+	
+	
+}
